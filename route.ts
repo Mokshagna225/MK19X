@@ -3,20 +3,13 @@ import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-const buildPrompt = `You are a senior product designer and frontend engineer working for MK19X.
-Generate a polished, responsive, self-contained website prototype from the user brief.
-Return ONLY a complete HTML document. No markdown fences or commentary.
-Requirements:
-- Put all CSS in one <style> block and JavaScript in one <script> block when needed.
-- Use semantic HTML, responsive layouts, accessible labels, visible focus states, and reduced-motion support.
-- Create a high-quality visual design with a coherent color system, strong typography, generous spacing, clear hierarchy, and realistic copy.
-- Make navigation and visible interactions work. If a form is included, show a clear demo success state; do not claim to send data anywhere.
-- Use CSS gradients and shapes rather than relying on remote image assets. If images materially help, use stable Unsplash source URLs with descriptive alt text, but ensure layout still looks good if they fail.
-- Do not include secrets, API keys, hidden tracking, or external scripts.
-- Do not implement real authentication, payment processing, database writes, or production backend behavior. Represent these as clearly labeled demo UI only.
-- The HTML will be rendered in a sandboxed iframe. Do not use top navigation, popups, or parent-window access.
-- Include a useful title and meta description. Prioritize the user's requested business and features.
-- Output valid HTML from <!doctype html> through </html>.`;
+const systemPrompt = `You are MK19X, a friendly agentic website-building consultant for beginners.
+Your job is to discover what a user wants before generating a website. Ask exactly ONE concise, useful question per turn, unless the request already gives enough detail to create a useful first draft.
+Use the conversation history. Avoid repeating questions already answered.
+Explore these details naturally: purpose, audience, visual style, pages/sections, features, brand name/colors, content, and whether they need a simple frontend or backend. Do not ask all questions at once; prioritize what changes the design most.
+Be practical and encouraging. If the user is unsure, suggest sensible defaults and let them proceed.
+When the user says they are ready, summarize the brief in plain language and say they can click Build website. Do not output code in interview mode.
+Safety: never ask for passwords, API keys, payment-card numbers, or sensitive personal data. Warn that generated previews are untrusted prototypes and should be reviewed before production.`;
 
 export async function POST(req: Request) {
   try {
@@ -24,27 +17,23 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Add OPENAI_API_KEY to .env.local, then restart the dev server." }, { status: 503 });
     }
     const body = await req.json();
-    const brief = typeof body.brief === "string" ? body.brief.slice(0, 12000) : "";
-    if (brief.trim().length < 10) return NextResponse.json({ error: "Please add a little more detail to your website brief." }, { status: 400 });
+    const messages = Array.isArray(body.messages) ? body.messages : [];
+    if (messages.length > 40) return NextResponse.json({ error: "Please start a fresh brief for a new project." }, { status: 400 });
 
     const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     const completion = await client.chat.completions.create({
       model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
-      temperature: 0.7,
-      max_tokens: 9000,
+      temperature: 0.6,
+      max_tokens: 350,
       messages: [
-        { role: "system", content: buildPrompt },
-        { role: "user", content: `Build a website based on this brief:\n\n${brief}` }
+        { role: "system", content: systemPrompt },
+        ...messages.slice(-20).filter((m: any) => ["user", "assistant"].includes(m.role) && typeof m.content === "string")
       ]
     });
-    let html = completion.choices[0]?.message?.content?.trim() || "";
-    html = html.replace(/^```(?:html)?\s*/i, "").replace(/\s*```$/, "");
-    if (!html.toLowerCase().includes("<!doctype html") && !html.toLowerCase().includes("<html")) {
-      return NextResponse.json({ error: "The generator returned an incomplete page. Please try building again." }, { status: 502 });
-    }
-    return NextResponse.json({ html });
+    const reply = completion.choices[0]?.message?.content?.trim() || "Tell me a little more about the website you have in mind.";
+    return NextResponse.json({ reply });
   } catch (error) {
-    console.error("Build route failed", error);
-    return NextResponse.json({ error: "Website generation failed. Please check your API configuration and try again." }, { status: 500 });
+    console.error("Agent route failed", error);
+    return NextResponse.json({ error: "The agent could not respond. Check your API configuration and try again." }, { status: 500 });
   }
 }
